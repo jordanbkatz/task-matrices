@@ -20,7 +20,6 @@ export type EisenhowerState = {
 const KEY = "eisenhower_matrix_app_v1_state";
 
 export function loadState(): EisenhowerState {
-  if (typeof window === "undefined") return defaultState();
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultState();
@@ -33,7 +32,6 @@ export function loadState(): EisenhowerState {
 }
 
 export function saveState(state: EisenhowerState) {
-  if (typeof window === "undefined") return;
   localStorage.setItem(KEY, JSON.stringify(state));
 }
 
