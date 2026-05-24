@@ -3,6 +3,8 @@ import { loadState, saveState, type EisenhowerState } from "@/lib/eisenhower-sto
 import { EisenhowerMatrix } from "@/components/EisenhowerMatrix";
 import { ControlsPanel } from "@/components/ControlsPanel";
 
+const WORKSPACE_HEIGHT = "min(720px, calc(100vh - 2.5rem))";
+
 export default function App() {
   const [state, setStateRaw] = useState<EisenhowerState | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -26,15 +28,18 @@ export default function App() {
       sets: state.sets.map((s) =>
         s.id === activeSet.id
           ? { ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, urgency, importance } : t)) }
-          : s
+          : s,
       ),
     });
   };
 
   return (
-    <main className="min-h-screen p-3 sm:p-6">
-      <div className="max-w-[1400px] mx-auto grid gap-4 lg:gap-6 lg:grid-cols-[340px_1fr] lg:items-stretch lg:h-[calc(100vh-3rem)]">
-        <aside className="lg:h-full min-h-0">
+    <main className="min-h-screen w-full max-w-[100vw] overflow-x-hidden box-border flex items-center justify-center p-3 sm:p-4 lg:p-6">
+      <div
+        className="w-full min-w-0 max-w-full flex flex-col lg:flex-row items-stretch justify-evenly gap-5 lg:gap-6 h-auto lg:h-[var(--workspace-h)]"
+        style={{ ["--workspace-h" as string]: WORKSPACE_HEIGHT }}
+      >
+        <aside className="w-full min-w-0 lg:w-[min(340px,42vw)] lg:max-w-[340px] lg:shrink-0 h-[min(480px,55vh)] lg:h-full flex flex-col">
           <ControlsPanel
             state={state}
             setState={setState}
@@ -42,7 +47,7 @@ export default function App() {
             setSelectedId={setSelectedId}
           />
         </aside>
-        <section className="flex items-center justify-center min-h-0 lg:h-full w-full">
+        <section className="w-full min-w-0 lg:flex-1 lg:max-w-[min(720px,calc(100vw-380px))] lg:h-full flex items-center justify-center">
           <EisenhowerMatrix
             tasks={activeSet.tasks}
             onMove={moveTask}
