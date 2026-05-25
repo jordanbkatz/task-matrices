@@ -7,8 +7,9 @@ export type TaskLabelLayout = {
 };
 
 const LABEL_H = 22;
-const DOT_R = 10;
-const GAP = 5;
+/** Half-width of task dot (matches max dot size on matrix). */
+const DOT_R = 12;
+const GAP = 10;
 const STACK_STEP = 20;
 const PROX_URGENCY = 12;
 const PROX_IMPORTANCE = 10;

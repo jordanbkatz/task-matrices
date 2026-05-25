@@ -1,5 +1,13 @@
-import { useEffect, useState } from "react";
-import { loadState, saveState, type EisenhowerState } from "@/lib/eisenhower-storage";
+import { useEffect, useMemo, useState } from "react";
+import {
+  findTask,
+  getTasksAtPath,
+  loadState,
+  mapTask,
+  pruneMatrixPath,
+  saveState,
+  type EisenhowerState,
+} from "@/lib/eisenhower-storage";
 import { EisenhowerMatrix } from "@/components/EisenhowerMatrix";
 import { ControlsPanel } from "@/components/ControlsPanel";
 
@@ -8,10 +16,34 @@ const WORKSPACE_HEIGHT = "min(720px, calc(100vh - 2.5rem))";
 export default function App() {
   const [state, setStateRaw] = useState<EisenhowerState | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [matrixPath, setMatrixPath] = useState<string[]>([]);
 
   useEffect(() => {
     setStateRaw(loadState());
   }, []);
+
+  const matrixPathSafe = useMemo(() => {
+    if (!state) return [];
+    return pruneMatrixPath(state, matrixPath);
+  }, [state, matrixPath]);
+
+  const matrixTasks = useMemo(() => {
+    if (!state) return [];
+    return getTasksAtPath(state, matrixPathSafe);
+  }, [state, matrixPathSafe]);
+
+  useEffect(() => {
+    if (!state) return;
+    if (matrixPathSafe.length !== matrixPath.length) {
+      setMatrixPath(matrixPathSafe);
+    }
+  }, [state, matrixPath, matrixPathSafe]);
+
+  useEffect(() => {
+    if (selectedId && !matrixTasks.some((t) => t.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [matrixTasks, selectedId]);
 
   const setState = (s: EisenhowerState) => {
     setStateRaw(s);
@@ -20,17 +52,24 @@ export default function App() {
 
   if (!state) return <div className="min-h-screen" />;
 
-  const activeSet = state.sets.find((s) => s.id === state.activeSetId) ?? state.sets[0];
+  const updateState = (mut: (s: EisenhowerState) => EisenhowerState) => {
+    setState(mut(state));
+  };
 
   const moveTask = (id: string, urgency: number, importance: number) => {
-    setState({
-      ...state,
-      sets: state.sets.map((s) =>
-        s.id === activeSet.id
-          ? { ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, urgency, importance } : t)) }
-          : s,
-      ),
-    });
+    updateState((s) => mapTask(s, id, (t) => ({ ...t, urgency, importance })));
+  };
+
+  const drillIntoTask = (id: string) => {
+    if (!findTask(state, id)) return;
+    setMatrixPath((p) => [...pruneMatrixPath(state, p), id]);
+    setSelectedId(id);
+  };
+
+  const navigateMatrix = (path: string[]) => {
+    setMatrixPath(path);
+    const leaf = path[path.length - 1];
+    setSelectedId(leaf ?? null);
   };
 
   return (
@@ -45,14 +84,17 @@ export default function App() {
             setState={setState}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
+            matrixPath={matrixPathSafe}
+            onNavigatePath={navigateMatrix}
           />
         </aside>
         <section className="w-full min-w-0 lg:flex-1 lg:max-w-[min(720px,calc(100vw-380px))] lg:h-full flex items-center justify-center">
           <EisenhowerMatrix
-            tasks={activeSet.tasks}
+            tasks={matrixTasks}
             onMove={moveTask}
             onSelect={setSelectedId}
             selectedId={selectedId}
+            onDrillInto={drillIntoTask}
           />
         </section>
       </div>

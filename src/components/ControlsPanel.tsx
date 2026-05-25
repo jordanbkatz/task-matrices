@@ -1,42 +1,44 @@
 import { useEffect, useState } from "react";
-import type { EisenhowerState, Task, TaskSet } from "@/lib/eisenhower-storage";
-import { completeTaskInSet, reinstateTaskInSet, uid } from "@/lib/eisenhower-storage";
+import type { EisenhowerState } from "@/lib/eisenhower-storage";
+import {
+  addTask,
+  completeTask,
+  createTask,
+  findTask,
+  getTasksAtPath,
+  mapTask,
+  reinstateTask,
+  resolveAddParentId,
+} from "@/lib/eisenhower-storage";
+import { TaskBreadcrumb } from "@/components/TaskBreadcrumb";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Plus,
-  Trash2,
-  Pencil,
-  Check,
-  X,
-  FolderPlus,
-  ChevronDown,
-  ChevronRight,
-  CheckCircle2,
-  Undo2,
-} from "lucide-react";
+import { Plus, Check, X, ChevronDown, ChevronRight, CheckCircle2, Undo2 } from "lucide-react";
 
 type Props = {
   state: EisenhowerState;
   setState: (s: EisenhowerState) => void;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
+  matrixPath: string[];
+  onNavigatePath: (path: string[]) => void;
 };
 
 type ActivePanel = "list" | "completed" | "add" | "edit" | null;
 
-export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Props) {
-  const activeSet = state.sets.find((s) => s.id === state.activeSetId) ?? state.sets[0];
+export function ControlsPanel({
+  state,
+  setState,
+  selectedId,
+  setSelectedId,
+  matrixPath,
+  onNavigatePath,
+}: Props) {
+  const visibleTasks = getTasksAtPath(state, matrixPath);
+  const visibleTaskIds = new Set(visibleTasks.map((t) => t.id));
 
   const [activePanel, setActivePanel] = useState<ActivePanel>("list");
 
@@ -50,11 +52,13 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
   const [eUrgency, setEUrgency] = useState(50);
   const [eImportance, setEImportance] = useState(50);
 
-  const [newSetName, setNewSetName] = useState("");
-  const [editingSet, setEditingSet] = useState(false);
-  const [setRename, setSetRename] = useState("");
+  const selectedTask = selectedId ? findTask(state, selectedId) : null;
 
-  const selectedTask = activeSet.tasks.find((t) => t.id === selectedId) ?? null;
+  const addParentId = resolveAddParentId(state, matrixPath, selectedId, visibleTaskIds);
+  const addParentTask = addParentId ? findTask(state, addParentId) : null;
+  const addingSubtask = addParentId !== null;
+  const addButtonLabel =
+    matrixPath.length > 0 ? "Add Task" : addingSubtask ? "Add Subtask" : "Add Task";
 
   const selectTask = (id: string) => {
     setSelectedId(id);
@@ -73,7 +77,6 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
 
   const openAdd = () => {
     setActivePanel((cur) => (cur === "add" ? null : "add"));
-    setSelectedId(null);
   };
 
   const closePanel = () => {
@@ -102,63 +105,48 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.urgency, selectedTask?.importance]);
 
-  const updateActiveSet = (mut: (s: TaskSet) => TaskSet) => {
-    setState({
-      ...state,
-      sets: state.sets.map((s) => (s.id === activeSet.id ? mut(s) : s)),
-    });
+  const updateState = (mut: (s: EisenhowerState) => EisenhowerState) => {
+    setState(mut(state));
   };
 
-  const addTask = () => {
+  const addTaskHandler = () => {
     if (!name.trim()) return;
-    const task: Task = { id: uid(), name: name.trim(), description: desc.trim(), urgency, importance };
-    updateActiveSet((s) => ({ ...s, tasks: [...s.tasks, task] }));
+    const task = createTask({
+      name: name.trim(),
+      description: desc.trim(),
+      urgency,
+      importance,
+    });
+    updateState((s) => addTask(s, addParentId, task));
     setName("");
     setDesc("");
     setUrgency(50);
     setImportance(50);
-    setActivePanel(null);
+    setSelectedId(task.id);
+    setActivePanel("edit");
   };
 
   const saveEdit = () => {
     if (!selectedTask || !eName.trim()) return;
-    updateActiveSet((s) => ({
-      ...s,
-      tasks: s.tasks.map((t) =>
-        t.id === selectedTask.id
-          ? { ...t, name: eName.trim(), description: eDesc.trim(), urgency: eUrgency, importance: eImportance }
-          : t,
-      ),
-    }));
+    updateState((s) =>
+      mapTask(s, selectedTask.id, (t) => ({
+        ...t,
+        name: eName.trim(),
+        description: eDesc.trim(),
+        urgency: eUrgency,
+        importance: eImportance,
+      })),
+    );
     closePanel();
   };
 
-  const completeTask = (id: string) => {
-    updateActiveSet((s) => completeTaskInSet(s, id));
+  const completeTaskHandler = (id: string) => {
+    updateState((s) => completeTask(s, id));
     if (selectedId === id) closePanel();
   };
 
-  const reinstateTask = (id: string) => {
-    updateActiveSet((s) => reinstateTaskInSet(s, id));
-  };
-
-  const addSet = () => {
-    if (!newSetName.trim()) return;
-    const ns: TaskSet = { id: uid(), name: newSetName.trim(), tasks: [], completedTasks: [] };
-    setState({ ...state, sets: [...state.sets, ns], activeSetId: ns.id });
-    setNewSetName("");
-  };
-
-  const deleteSet = () => {
-    if (state.sets.length <= 1) return;
-    const remaining = state.sets.filter((s) => s.id !== activeSet.id);
-    setState({ ...state, sets: remaining, activeSetId: remaining[0].id });
-  };
-
-  const renameSet = () => {
-    if (!setRename.trim()) return;
-    updateActiveSet((s) => ({ ...s, name: setRename.trim() }));
-    setEditingSet(false);
+  const reinstateTaskHandler = (id: string) => {
+    updateState((s) => reinstateTask(s, id));
   };
 
   const formatCompletedAt = (ts: number) =>
@@ -166,83 +154,14 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
 
   return (
     <div className="h-full flex flex-col gap-4 p-4 sm:p-5 bg-card/60 backdrop-blur-xl rounded-2xl border border-border shadow-xl overflow-hidden min-h-0">
-      <div className="shrink-0">
-        <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-foreground to-primary bg-clip-text text-transparent">
-          Task Matrices
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1">Prioritize by urgency & importance</p>
-      </div>
-
-      <div className="space-y-2 shrink-0">
-        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Task Set</Label>
-        {editingSet ? (
-          <div className="flex gap-1">
-            <Input
-              value={setRename}
-              onChange={(e) => setSetRename(e.target.value)}
-              placeholder={activeSet.name}
-              onKeyDown={(e) => e.key === "Enter" && renameSet()}
-            />
-            <Button size="icon" variant="secondary" onClick={renameSet}>
-              <Check className="h-4 w-4" />
-            </Button>
-            <Button size="icon" variant="ghost" onClick={() => setEditingSet(false)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : (
-          <div className="flex gap-1">
-            <Select
-              value={activeSet.id}
-              onValueChange={(v) => {
-                setState({ ...state, activeSetId: v });
-                closePanel();
-              }}
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {state.sets.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => {
-                setSetRename(activeSet.name);
-                setEditingSet(true);
-              }}
-              title="Rename set"
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={deleteSet}
-              disabled={state.sets.length <= 1}
-              title="Delete set"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-        <div className="flex gap-1">
-          <Input
-            placeholder="New set name"
-            value={newSetName}
-            onChange={(e) => setNewSetName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addSet()}
-          />
-          <Button size="icon" variant="secondary" onClick={addSet}>
-            <FolderPlus className="h-4 w-4" />
-          </Button>
+      <div className="shrink-0 space-y-2">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-foreground to-primary bg-clip-text text-transparent">
+            Task Matrices
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">Prioritize by urgency & importance</p>
         </div>
+        <TaskBreadcrumb state={state} path={matrixPath} onNavigate={onNavigatePath} />
       </div>
 
       <div className="border-t border-border shrink-0" />
@@ -253,7 +172,11 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
           onClick={openList}
           className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition shrink-0"
         >
-          <span>Tasks List ({activeSet.tasks.length})</span>
+          <span>
+            {matrixPath.length > 0
+              ? `Subtasks (${visibleTasks.length})`
+              : `Tasks List (${visibleTasks.length})`}
+          </span>
           {activePanel === "list" ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </button>
 
@@ -262,7 +185,7 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
           onClick={openCompleted}
           className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition shrink-0"
         >
-          <span>Recently Completed ({activeSet.completedTasks.length})</span>
+          <span>Recently Completed ({state.completedTasks.length})</span>
           {activePanel === "completed" ? (
             <ChevronDown className="h-4 w-4" />
           ) : (
@@ -272,10 +195,12 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
 
         {activePanel === "list" && (
           <div className="flex-1 min-h-0 overflow-y-auto space-y-2 -mr-1 pr-1">
-            {activeSet.tasks.length === 0 && (
-              <p className="text-sm text-muted-foreground italic">No tasks yet.</p>
+            {visibleTasks.length === 0 && (
+              <p className="text-sm text-muted-foreground italic">
+                {matrixPath.length > 0 ? "No subtasks yet." : "No tasks yet."}
+              </p>
             )}
-            {activeSet.tasks.map((t) => (
+            {visibleTasks.map((t) => (
               <div
                 key={t.id}
                 onClick={() => selectTask(t.id)}
@@ -291,9 +216,12 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
                     {t.description && (
                       <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{t.description}</div>
                     )}
-                    <div className="flex gap-3 mt-1.5 text-[10px] font-mono text-muted-foreground">
+                    <div className="flex flex-wrap gap-2 mt-1.5 text-[10px] font-mono text-muted-foreground">
                       <span>U: {t.urgency}</span>
                       <span>I: {t.importance}</span>
+                      {t.subtasks.length > 0 && (
+                        <span className="text-primary">{t.subtasks.length} subtasks</span>
+                      )}
                     </div>
                   </div>
                   <Button
@@ -302,7 +230,7 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
                     className="h-7 w-7 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition text-primary hover:text-primary"
                     onClick={(e) => {
                       e.stopPropagation();
-                      completeTask(t.id);
+                      completeTaskHandler(t.id);
                     }}
                     title="Mark complete"
                   >
@@ -316,10 +244,10 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
 
         {activePanel === "completed" && (
           <div className="flex-1 min-h-0 overflow-y-auto space-y-2 -mr-1 pr-1">
-            {activeSet.completedTasks.length === 0 && (
+            {state.completedTasks.length === 0 && (
               <p className="text-sm text-muted-foreground italic">No completed tasks yet.</p>
             )}
-            {activeSet.completedTasks.map((t) => (
+            {state.completedTasks.map((t) => (
               <div key={t.id} className="group p-3 rounded-lg border bg-background/30 border-border/70">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
@@ -334,7 +262,7 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
                     size="icon"
                     variant="ghost"
                     className="h-7 w-7 shrink-0"
-                    onClick={() => reinstateTask(t.id)}
+                    onClick={() => reinstateTaskHandler(t.id)}
                     title="Reinstate task"
                   >
                     <Undo2 className="h-3.5 w-3.5" />
@@ -375,6 +303,12 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
             </div>
             <Slider value={[eImportance]} onValueChange={(v) => setEImportance(v[0])} max={100} step={1} />
           </div>
+          <p className="text-[10px] text-muted-foreground">
+            {selectedTask.subtasks.length > 0
+              ? `${selectedTask.subtasks.length} subtask${selectedTask.subtasks.length === 1 ? "" : "s"} — `
+              : ""}
+            double-click on the matrix to open subtasks
+          </p>
           <div className="flex gap-2">
             <Button onClick={saveEdit} className="flex-1" disabled={!eName.trim()}>
               <Check className="h-4 w-4 mr-1" /> Save
@@ -382,7 +316,7 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
             <Button
               variant="secondary"
               size="icon"
-              onClick={() => completeTask(selectedTask.id)}
+              onClick={() => completeTaskHandler(selectedTask.id)}
               title="Mark complete"
             >
               <CheckCircle2 className="h-4 w-4" />
@@ -394,11 +328,18 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
       {activePanel === "add" && (
         <div className="space-y-3 p-3 rounded-lg border border-border bg-background/40 shrink-0">
           <div className="flex items-center justify-between">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Add Task</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+              {addButtonLabel}
+            </Label>
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={closePanel}>
               <X className="h-4 w-4" />
             </Button>
           </div>
+          {addingSubtask && addParentTask && (
+            <p className="text-[10px] text-muted-foreground">
+              Under: <span className="font-medium text-foreground">{addParentTask.name}</span>
+            </p>
+          )}
           <Input placeholder="Task name" value={name} onChange={(e) => setName(e.target.value)} />
           <Textarea
             placeholder="Description"
@@ -420,15 +361,15 @@ export function ControlsPanel({ state, setState, selectedId, setSelectedId }: Pr
             </div>
             <Slider value={[importance]} onValueChange={(v) => setImportance(v[0])} max={100} step={1} />
           </div>
-          <Button onClick={addTask} className="w-full" disabled={!name.trim()}>
-            <Plus className="h-4 w-4 mr-1" /> Add Task
+          <Button onClick={addTaskHandler} className="w-full" disabled={!name.trim()}>
+            <Plus className="h-4 w-4 mr-1" /> {addButtonLabel}
           </Button>
         </div>
       )}
 
       {activePanel !== "add" && activePanel !== "edit" && (
         <Button onClick={openAdd} className="w-full shrink-0" size="lg">
-          <Plus className="h-5 w-5 mr-1" /> Add Task
+          <Plus className="h-5 w-5 mr-1" /> {addButtonLabel}
         </Button>
       )}
     </div>

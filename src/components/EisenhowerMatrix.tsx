@@ -23,6 +23,7 @@ type Props = {
   onMove: (id: string, urgency: number, importance: number) => void;
   onSelect?: (id: string | null) => void;
   selectedId?: string | null;
+  onDrillInto?: (id: string) => void;
 };
 
 function quadrantColor(u: number, i: number) {
@@ -43,7 +44,7 @@ function labelStyle(layout: TaskLabelLayout): React.CSSProperties {
   return { right: layout.offsetX, top: layout.offsetY, transform: "translateY(-50%)" };
 }
 
-export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props) {
+export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId, onDrillInto }: Props) {
   const plotRef = useRef<HTMLDivElement>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const didDragRef = useRef(false);
@@ -134,6 +135,10 @@ export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props)
     if (!didDragRef.current) onSelect?.(id);
   };
 
+  const handleDrillInto = (task: Task) => {
+    onDrillInto?.(task.id);
+  };
+
   const handlePlotBackgroundPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("[data-task-marker]")) return;
     onSelect?.(null);
@@ -161,11 +166,11 @@ export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props)
         />
 
         <div
-          className="absolute flex pointer-events-none border-b border-border/60 z-10"
+          className="absolute flex divide-x divide-border/60 pointer-events-none border-b border-border/60 z-10"
           style={{ left: LABEL_GAP, right: 0, top: 0, height: LABEL_GAP }}
         >
-          <div className={`flex-1 ${labelRailClass} border-r border-border/60`}>Urgent</div>
-          <div className={`flex-1 ${labelRailClass}`}>Not Urgent</div>
+          <div className={`flex-1 min-w-0 ${labelRailClass}`}>Urgent</div>
+          <div className={`flex-1 min-w-0 ${labelRailClass}`}>Not Urgent</div>
         </div>
 
         <div
@@ -173,17 +178,21 @@ export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props)
           style={{ left: 0, top: LABEL_GAP, bottom: 0, width: LABEL_GAP }}
         >
           <div
-            className={`flex-1 ${labelRailClass} border-b border-border/60`}
+            className={`flex-1 min-h-0 ${labelRailClass}`}
             style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
           >
             Important
           </div>
           <div
-            className={`flex-1 ${labelRailClass}`}
+            className={`flex-1 min-h-0 ${labelRailClass}`}
             style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
           >
             Not Important
           </div>
+          <div
+            className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border/60 pointer-events-none"
+            aria-hidden
+          />
         </div>
 
         <div
@@ -210,8 +219,10 @@ export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props)
                   <div style={{ background: "color-mix(in oklab, var(--q3) 10%, transparent)" }} />
                   <div style={{ background: "color-mix(in oklab, var(--q4) 8%, transparent)" }} />
                 </div>
-                <div className="absolute left-0 right-0 top-1/2 h-px bg-foreground/30 pointer-events-none" />
-                <div className="absolute top-0 bottom-0 left-1/2 w-px bg-foreground/30 pointer-events-none" />
+                {/* Important / Not Important */}
+                <div className="absolute left-0 right-0 top-1/2 h-px bg-foreground/30 pointer-events-none z-[1]" />
+                {/* Urgent / Not Urgent */}
+                <div className="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-foreground/30 pointer-events-none z-[1]" />
               </div>
             </div>
 
@@ -223,6 +234,7 @@ export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props)
                 const color = quadrantColor(t.urgency, t.importance);
                 const layout = labelLayouts.get(t.id);
                 const dragging = dragId === t.id;
+                const hasSubtasks = t.subtasks.length > 0;
 
                 return (
                   <div
@@ -238,22 +250,38 @@ export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props)
                     <div
                       data-task-marker
                       className="relative pointer-events-auto cursor-grab active:cursor-grabbing"
+                      style={{ width: 0, height: 0 }}
                     >
                       <button
                         type="button"
                         onPointerDown={(e) => startDrag(t.id, e)}
                         onClick={() => handleSelect(t.id)}
-                        className={`rounded-full shadow-lg transition-transform ${
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          handleDrillInto(t);
+                        }}
+                        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full shadow-lg transition-transform ${
                           dragging ? "scale-125" : isSel ? "scale-110" : "hover:scale-110"
                         }`}
                         style={{
-                          width: 18,
-                          height: 18,
+                          width: hasSubtasks ? 24 : 18,
+                          height: hasSubtasks ? 24 : 18,
                           background: color,
                           boxShadow: `0 0 0 3px color-mix(in oklab, ${color} 30%, transparent), 0 4px 16px color-mix(in oklab, ${color} 50%, transparent)`,
                         }}
-                        aria-label={t.name}
-                      />
+                        aria-label={
+                          hasSubtasks
+                            ? `${t.name} (${t.subtasks.length} subtasks, double-click to open)`
+                            : `${t.name} (double-click to open subtasks)`
+                        }
+                        title="Double-click to view subtasks"
+                      >
+                        {hasSubtasks && (
+                          <span className="text-[10px] font-bold leading-none text-white drop-shadow-sm tabular-nums">
+                            {t.subtasks.length}
+                          </span>
+                        )}
+                      </button>
                       {layout && (
                         <button
                           type="button"
@@ -262,6 +290,12 @@ export function EisenhowerMatrix({ tasks, onMove, onSelect, selectedId }: Props)
                             e.stopPropagation();
                             handleSelect(t.id);
                           }}
+                          onDoubleClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDrillInto(t);
+                          }}
+                          title="Double-click to view subtasks"
                           className={`absolute whitespace-nowrap text-xs sm:text-sm font-medium px-2 py-0.5 rounded-md bg-muted/95 backdrop-blur border shadow-sm hover:bg-accent/80 transition select-none ${
                             isSel
                               ? "border-primary ring-1 ring-primary"
